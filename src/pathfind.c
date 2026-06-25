@@ -1,6 +1,5 @@
 #include "pathfind.h"
 #include <string.h>
-#include <stdlib.h>
 
 #define MAX_W 64
 #define MAX_H 64
