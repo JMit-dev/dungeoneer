@@ -112,19 +112,9 @@ static void TryMove(int dx, int dy)
     int ny = game.player.y + dy;
     if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return;
 
-    for (int i = 0; i < game.enemyCount; i++) {
-        Enemy *e = &game.enemies[i];
-        if (e->active && e->x == nx && e->y == ny) {
-            e->hp--;
-            if (e->hp <= 0) {
-                e->active = false;
-                game.score += SCORE_ENEMY;
-                ShowMessage("Enemy defeated!");
-            }
-            MoveEnemies();
-            return;
-        }
-    }
+    for (int i = 0; i < game.enemyCount; i++)
+        if (game.enemies[i].active &&
+            game.enemies[i].x == nx && game.enemies[i].y == ny) return;
 
     int terrain = game.map.terrain[ny][nx];
     int obj     = game.map.objects[ny][nx];
