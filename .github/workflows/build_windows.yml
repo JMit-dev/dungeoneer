@@ -1,0 +1,73 @@
+name: Build - Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build_windows.yml'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: windows-latest
+
+    env:
+      PROJECT_NAME: ${{ github.event.repository.name }}
+      RELEASE_PATH: ${{ github.event.repository.name }}_dev_win_x64
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup release path
+        if: github.event_name == 'release'
+        shell: bash
+        run: echo "RELEASE_PATH=${{ env.PROJECT_NAME }}_v${{ github.event.release.tag_name }}_win_x64" >> $GITHUB_ENV
+
+      - name: Install libxml2 via vcpkg
+        run: |
+          vcpkg install libxml2:x64-windows
+          echo "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
+
+      - name: Configure
+        run: |
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p "${{ env.RELEASE_PATH }}"
+          cp build/bin/Release/game.exe "${{ env.RELEASE_PATH }}/" 2>/dev/null || cp build/bin/game.exe "${{ env.RELEASE_PATH }}/"
+          cp -r resources "${{ env.RELEASE_PATH }}/"
+          cp README.md LICENSE "${{ env.RELEASE_PATH }}/" 2>/dev/null || true
+          7z a "${{ env.RELEASE_PATH }}.zip" "${{ env.RELEASE_PATH }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_PATH }}
+          path: ${{ env.RELEASE_PATH }}/
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.RELEASE_PATH }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

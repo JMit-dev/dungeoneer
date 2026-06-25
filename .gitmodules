@@ -1,0 +1,15 @@
+[submodule "lib/raylib"]
+	path = lib/raylib
+	url = https://github.com/raysan5/raylib.git
+[submodule "lib/raylib-tmx"]
+	path = lib/raylib-tmx
+	url = https://github.com/RobLoach/raylib-tmx.git
+[submodule "lib/raylib-aseprite"]
+	path = lib/raylib-aseprite
+	url = https://github.com/robloach/raylib-aseprite.git
+[submodule "lib/tmx"]
+	path = lib/tmx
+	url = https://github.com/baylej/tmx.git
+[submodule "lib/raygui"]
+	path = lib/raygui
+	url = https://github.com/raysan5/raygui.git

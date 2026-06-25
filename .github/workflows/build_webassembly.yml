@@ -1,0 +1,102 @@
+name: Build - WebAssembly
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build_webassembly.yml'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+
+    env:
+      PROJECT_NAME: ${{ github.event.repository.name }}
+      RELEASE_PATH: ${{ github.event.repository.name }}_dev_wasm
+      EMSDK_VERSION: 3.1.64
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup release path
+        if: github.event_name == 'release'
+        run: echo "RELEASE_PATH=${{ env.PROJECT_NAME }}_v${{ github.event.release.tag_name }}_wasm" >> $GITHUB_ENV
+
+      - name: Setup emsdk
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure (Web)
+        run: emcmake cmake -B build_web -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Web)
+        run: cmake --build build_web --config Release
+
+      - name: Package
+        run: |
+          mkdir -p ${{ env.RELEASE_PATH }}
+          cp build_web/bin/game.html  ${{ env.RELEASE_PATH }}/index.html
+          cp build_web/bin/game.js    ${{ env.RELEASE_PATH }}/
+          cp build_web/bin/game.wasm  ${{ env.RELEASE_PATH }}/
+          cp build_web/bin/game.data  ${{ env.RELEASE_PATH }}/ 2>/dev/null || true
+          cp README.md LICENSE ${{ env.RELEASE_PATH }}/ 2>/dev/null || true
+          7z a ${{ env.RELEASE_PATH }}.zip ${{ env.RELEASE_PATH }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_PATH }}
+          path: ${{ env.RELEASE_PATH }}/
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.RELEASE_PATH }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Optional: deploy to GitHub Pages on push to main
+  deploy-pages:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ github.event.repository.name }}_dev_wasm
+          path: ./web
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./web
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

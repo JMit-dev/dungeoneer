@@ -1,0 +1,72 @@
+name: Build - macOS
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/build_macos.yml'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    permissions:
+      contents: write
+    runs-on: macos-latest
+
+    env:
+      PROJECT_NAME: ${{ github.event.repository.name }}
+      RELEASE_PATH: ${{ github.event.repository.name }}_dev_macos
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup release path
+        if: github.event_name == 'release'
+        run: echo "RELEASE_PATH=${{ env.PROJECT_NAME }}_v${{ github.event.release.tag_name }}_macos" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja libxml2
+          echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig" >> $GITHUB_ENV
+
+      - name: Configure (universal binary)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=10.13
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Package
+        run: |
+          mkdir -p "${{ env.RELEASE_PATH }}/${{ env.PROJECT_NAME }}.app/Contents/MacOS"
+          mkdir -p "${{ env.RELEASE_PATH }}/${{ env.PROJECT_NAME }}.app/Contents/Resources"
+          cp build/bin/game "${{ env.RELEASE_PATH }}/${{ env.PROJECT_NAME }}.app/Contents/MacOS/${{ env.PROJECT_NAME }}"
+          cp -r resources "${{ env.RELEASE_PATH }}/${{ env.PROJECT_NAME }}.app/Contents/Resources/"
+          cp README.md LICENSE "${{ env.RELEASE_PATH }}/" 2>/dev/null || true
+          7z a ${{ env.RELEASE_PATH }}.zip ${{ env.RELEASE_PATH }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_PATH }}
+          path: ${{ env.RELEASE_PATH }}/
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.RELEASE_PATH }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
