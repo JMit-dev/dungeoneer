@@ -232,6 +232,7 @@ static void DrawWorld(void)
 
 static void DrawHUD(void)
 {
+    DrawRectangle(0, 0, 150, 92, Fade(BLACK, 0.72f));
     int barW = 120, barH = 12;
     DrawRectangle(8, 8, barW, barH, DARKGRAY);
     DrawRectangle(8, 8, barW * game.player.hp / game.player.maxHp, barH, RED);
