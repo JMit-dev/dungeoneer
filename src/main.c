@@ -7,7 +7,6 @@
     #include <emscripten/emscripten.h>
 #endif
 
-#include <string.h>
 #include <stdlib.h>
 #include <time.h>
 
@@ -16,12 +15,6 @@ static GameState game = { 0 };
 static void UpdateDrawFrame(void);
 
 /* ---- helpers ---- */
-
-static void ShowMessage(const char *msg)
-{
-    strncpy(game.messageText, msg, sizeof(game.messageText) - 1);
-    game.messageTimer = 2.5f;
-}
 
 static void DrawTile(int tileId, int px, int py, Color tint)
 {
@@ -87,7 +80,6 @@ static void MoveEnemies(void)
 
         if (dist == 1) {
             game.player.hp--;
-            ShowMessage("An enemy strikes you!");
             if (game.player.hp <= 0) {
                 if (game.score > game.highScore) game.highScore = game.score;
                 game.screen = SCREEN_GAMEOVER;
@@ -122,16 +114,13 @@ static void TryMove(int dx, int dy)
     if (terrain == TILE_WALL || terrain == TILE_WALL_A || terrain == TILE_WALL_B) return;
     if (terrain == TILE_NONE) return;
 
-    if (obj == TILE_BLOCK) { ShowMessage("Blocked! Find the lever."); return; }
+    if (obj == TILE_BLOCK) return;
 
     if (obj == TILE_DOOR_LOCKED) {
         if (game.player.hasKey) {
             game.map.objects[ny][nx] = TILE_DOOR_UNLOCKED;
             game.player.hasKey = false;
-            ShowMessage("You unlock the door.");
             MoveEnemies();
-        } else {
-            ShowMessage("Locked! Find the key.");
         }
         return;
     }
@@ -140,7 +129,6 @@ static void TryMove(int dx, int dy)
     game.player.y = ny;
 
     if (terrain == TILE_PIT) {
-        ShowMessage("You fell into a pit!");
         if (game.score > game.highScore) game.highScore = game.score;
         game.screen = SCREEN_GAMEOVER;
         return;
@@ -151,18 +139,15 @@ static void TryMove(int dx, int dy)
             game.map.objects[ny][nx] = TILE_NONE;
             game.score += SCORE_COIN;
             game.player.coins++;
-            ShowMessage("You pick up a coin.");
             break;
         case TILE_KEY:
             game.map.objects[ny][nx] = TILE_NONE;
             game.player.hasKey = true;
-            ShowMessage("You pick up a key!");
             break;
         case TILE_CHEST_CLOSED:
             game.map.objects[ny][nx] = TILE_CHEST_OPEN;
             game.score += SCORE_CHEST;
             game.player.coins += 5;
-            ShowMessage("Chest opened! +5 coins.");
             break;
         case TILE_LEVER_OFF:
             game.map.objects[ny][nx] = TILE_LEVER_ON;
@@ -171,7 +156,6 @@ static void TryMove(int dx, int dy)
                 for (int x = 0; x < MAP_W; x++)
                     if (game.map.objects[y][x] == TILE_BLOCK)
                         game.map.objects[y][x] = TILE_NONE;
-            ShowMessage("Lever pulled! Blocks removed.");
             break;
         case TILE_DOOR_UNLOCKED:
             game.map.objects[ny][nx] = TILE_NONE;
@@ -245,12 +229,6 @@ static void DrawHUD(void)
     if (game.player.hasKey)
         DrawText("[KEY]", 8, 72, 14, YELLOW);
 
-    if (game.messageTimer > 0.0f) {
-        int tw = MeasureText(game.messageText, 14);
-        DrawRectangle(SCREEN_WIDTH/2 - tw/2 - 4, SCREEN_HEIGHT - 36, tw + 8, 20, Fade(BLACK, 0.6f));
-        DrawText(game.messageText, SCREEN_WIDTH/2 - tw/2, SCREEN_HEIGHT - 34, 14, WHITE);
-    }
-
     DrawFPS(SCREEN_WIDTH - 80, 8);
 }
 
@@ -280,8 +258,6 @@ static void UpdateDrawFrame(void)
         int fc = AsepriteFrameCount(game.enemySprite);
         game.enemyFrame = (game.enemyFrame + 1) % fc;
     }
-
-    if (game.messageTimer > 0.0f) game.messageTimer -= dt;
 
     BeginDrawing();
     ClearBackground(BLACK);
