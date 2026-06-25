@@ -288,11 +288,8 @@ static void UpdateDrawFrame(void)
 
     switch (game.screen) {
         case SCREEN_LOGO: {
-            int tw = MeasureText("DUNGEONEER", 60);
-            DrawText("DUNGEONEER", SCREEN_WIDTH/2 - tw/2, SCREEN_HEIGHT/2 - 40, 60, GOLD);
-            DrawText("Descend. Survive. Escape.",
-                     SCREEN_WIDTH/2 - MeasureText("Descend. Survive. Escape.", 18)/2,
-                     SCREEN_HEIGHT/2 + 30, 18, LIGHTGRAY);
+            int tw = MeasureText("DUNGEONEER", 70);
+            DrawText("DUNGEONEER", SCREEN_WIDTH/2 - tw/2, SCREEN_HEIGHT/2 - 35, 70, WHITE);
             if (game.frameCount > TARGET_FPS * 2) {
                 game.screen = SCREEN_TITLE;
                 game.frameCount = 0;
@@ -301,23 +298,14 @@ static void UpdateDrawFrame(void)
 
         case SCREEN_TITLE: {
             int tw = MeasureText("DUNGEONEER", 70);
-            DrawText("DUNGEONEER", SCREEN_WIDTH/2 - tw/2, 80, 70, GOLD);
-            DrawText("Arrow keys / WASD to move",
-                     SCREEN_WIDTH/2 - MeasureText("Arrow keys / WASD to move", 16)/2,
-                     220, 16, GRAY);
-            DrawText("Bump enemies to attack",
-                     SCREEN_WIDTH/2 - MeasureText("Bump enemies to attack", 16)/2,
-                     242, 16, GRAY);
-            DrawText("Find the stairs to descend",
-                     SCREEN_WIDTH/2 - MeasureText("Find the stairs to descend", 16)/2,
-                     264, 16, GRAY);
+            DrawText("DUNGEONEER", SCREEN_WIDTH/2 - tw/2, SCREEN_HEIGHT/2 - 60, 70, WHITE);
+            DrawText("PRESS ENTER",
+                     SCREEN_WIDTH/2 - MeasureText("PRESS ENTER", 18)/2,
+                     SCREEN_HEIGHT/2 + 30, 18, GRAY);
             if (game.highScore > 0)
-                DrawText(TextFormat("Best: %d", game.highScore),
-                         SCREEN_WIDTH/2 - MeasureText(TextFormat("Best: %d", game.highScore), 18)/2,
-                         310, 18, GOLD);
-            DrawText("Press ENTER to play",
-                     SCREEN_WIDTH/2 - MeasureText("Press ENTER to play", 20)/2,
-                     370, 20, WHITE);
+                DrawText(TextFormat("BEST  %d", game.highScore),
+                         SCREEN_WIDTH/2 - MeasureText(TextFormat("BEST  %d", game.highScore), 14)/2,
+                         SCREEN_HEIGHT/2 + 60, 14, DARKGRAY);
 
             if (IsKeyPressed(KEY_ENTER)) {
                 NewGame();
