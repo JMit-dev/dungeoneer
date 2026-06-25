@@ -1,6 +1,5 @@
 #include "dungeon.h"
 #include <stdlib.h>
-#include <string.h>
 
 typedef struct { int x, y, w, h; } Room;
 

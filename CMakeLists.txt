@@ -35,6 +35,8 @@ add_subdirectory(lib/raygui/projects/CMake)
 # --- Game executable ---
 set(GAME_SOURCES
     src/main.c
+    src/dungeon.c
+    src/pathfind.c
 )
 
 add_executable(game ${GAME_SOURCES})
