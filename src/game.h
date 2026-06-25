@@ -93,6 +93,4 @@ typedef struct {
     int        enemyFrame;
     float      enemyAnimTimer;
     Camera2D   camera;
-    char       messageText[64];
-    float      messageTimer;
 } GameState;
