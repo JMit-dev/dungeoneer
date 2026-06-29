@@ -8,9 +8,13 @@
 #endif
 
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
-static GameState game = { 0 };
+#define VISION_RADIUS 8
+
+static GameState game     = { 0 };
+static bool s_visible[MAP_H][MAP_W];
 
 static void UpdateDrawFrame(void);
 
@@ -25,6 +29,51 @@ static void DrawTile(int tileId, int px, int py, Color tint)
                       (float)TILE_SIZE, (float)TILE_SIZE };
     Rectangle dst = { (float)px, (float)py, (float)TILE_DRAW, (float)TILE_DRAW };
     DrawTexturePro(game.tileset, src, dst, (Vector2){0, 0}, 0.0f, tint);
+}
+
+/* ---- fog of war ---- */
+
+static void ComputeVisibility(void)
+{
+    static bool seen[MAP_H][MAP_W];
+    static int  qx[MAP_H * MAP_W], qy[MAP_H * MAP_W], qd[MAP_H * MAP_W];
+    static const int DX[4] = { 0, 0, 1, -1 };
+    static const int DY[4] = { 1,-1, 0,  0 };
+
+    memset(s_visible, 0, sizeof(s_visible));
+    memset(seen,      0, sizeof(seen));
+
+    int px = game.player.x, py = game.player.y;
+    int front = 0, back = 0;
+    seen[py][px] = true;
+    qx[back] = px; qy[back] = py; qd[back++] = 0;
+
+    while (front < back) {
+        int cx = qx[front], cy = qy[front], dist = qd[front++];
+
+        s_visible[cy][cx] = true;
+        game.map.explored[cy][cx] = true;
+
+        /* also reveal orthogonally adjacent tiles (walls around corridors) */
+        for (int d = 0; d < 4; d++) {
+            int nx = cx+DX[d], ny = cy+DY[d];
+            if (nx<0||nx>=MAP_W||ny<0||ny>=MAP_H) continue;
+            s_visible[ny][nx] = true;
+            game.map.explored[ny][nx] = true;
+        }
+
+        if (dist >= VISION_RADIUS) continue;
+
+        for (int d = 0; d < 4; d++) {
+            int nx = cx+DX[d], ny = cy+DY[d];
+            if (nx<0||nx>=MAP_W||ny<0||ny>=MAP_H) continue;
+            if (seen[ny][nx]) continue;
+            int t = game.map.terrain[ny][nx];
+            if (t != TILE_FLOOR && t != TILE_PIT) continue;
+            seen[ny][nx] = true;
+            qx[back] = nx; qy[back] = ny; qd[back++] = dist+1;
+        }
+    }
 }
 
 /* ---- pathfinding callback ---- */
@@ -50,6 +99,7 @@ static bool EnemyCanPass(int x, int y, void *ctx)
 
 static void StartFloor(void)
 {
+    memset(game.map.explored, 0, sizeof(game.map.explored));
     unsigned seed = (unsigned)time(NULL) ^ (unsigned)(game.floor * 0x9e3779b9u);
     GenerateDungeon(&game.map, game.enemies, &game.enemyCount, game.floor, seed);
     game.player.x = game.map.spawnX;
@@ -182,23 +232,28 @@ static void DrawWorld(void)
     int startX = (int)(game.camera.target.x / TILE_DRAW) - visX / 2;
     int startY = (int)(game.camera.target.y / TILE_DRAW) - visY / 2;
 
+    static const Color DIM = { 70, 70, 90, 255 };
+
     for (int y = startY; y < startY + visY + 2; y++) {
         for (int x = startX; x < startX + visX + 2; x++) {
             if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) continue;
-            int px = x * TILE_DRAW;
-            int py = y * TILE_DRAW;
+            if (!game.map.explored[y][x]) continue;
 
-            int terrain = game.map.terrain[y][x];
-            int obj     = game.map.objects[y][x];
+            Color tint   = s_visible[y][x] ? WHITE : DIM;
+            int   px     = x * TILE_DRAW;
+            int   py     = y * TILE_DRAW;
+            int   terrain = game.map.terrain[y][x];
+            int   obj    = game.map.objects[y][x];
 
-            DrawTile(terrain, px, py, WHITE);
-            if (obj != TILE_NONE) DrawTile(obj, px, py, WHITE);
+            DrawTile(terrain, px, py, tint);
+            if (obj != TILE_NONE) DrawTile(obj, px, py, tint);
         }
     }
 
     for (int i = 0; i < game.enemyCount; i++) {
         Enemy *e = &game.enemies[i];
         if (!e->active) continue;
+        if (!s_visible[e->y][e->x]) continue;
         Vector2 pos = { (float)(e->x * TILE_DRAW), (float)(e->y * TILE_DRAW) };
         DrawAsepriteEx(game.enemySprite, game.enemyFrame, pos, 0.0f, TILE_SCALE, WHITE);
 
@@ -310,6 +365,7 @@ static void UpdateDrawFrame(void)
             game.camera.offset = (Vector2){ halfW, halfH };
             game.camera.zoom   = 1.0f;
 
+            ComputeVisibility();
             BeginMode2D(game.camera);
             DrawWorld();
             EndMode2D();

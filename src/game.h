@@ -70,6 +70,7 @@ typedef struct {
 typedef struct {
     int  terrain[MAP_H][MAP_W];
     int  objects[MAP_H][MAP_W];
+    bool explored[MAP_H][MAP_W];
     int  spawnX, spawnY;
     int  stairsDownX, stairsDownY;
     bool leverActivated;
