@@ -228,10 +228,13 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         for (int i = 0; i < *enemyCount && !dup; i++)
             if (enemies[i].x == x && enemies[i].y == y) dup = true;
         if (dup) continue;
+        int fd = rand() % 4;
         enemies[*enemyCount] = (Enemy){
             .x = x, .y = y,
             .hp = 2 + floor/2, .maxHp = 2 + floor/2,
-            .active = true, .visionRange = 12,
+            .active = true, .visionRange = 10,
+            .facingX = DX4[fd], .facingY = DY4[fd],
+            .alerted = false, .searchTurns = 0,
         };
         (*enemyCount)++;
     }

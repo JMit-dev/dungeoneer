@@ -54,10 +54,13 @@ typedef enum {
 } GameScreen;
 
 typedef struct {
-    int x, y;
-    int hp, maxHp;
+    int  x, y;
+    int  hp, maxHp;
     bool active;
-    int visionRange;
+    int  visionRange;
+    int  facingX, facingY;  /* current heading, one of (±1,0) or (0,±1) */
+    bool alerted;           /* actively chasing player                   */
+    int  searchTurns;       /* >0: lost sight, walking in last direction  */
 } Enemy;
 
 typedef struct {

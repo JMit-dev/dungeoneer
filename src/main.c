@@ -58,7 +58,7 @@ static bool EnemyCanPass(int x, int y, void *ctx)
 {
     PfCtx *c = (PfCtx *)ctx;
     int t = game.map.terrain[y][x];
-    if (t != TILE_FLOOR && t != TILE_STAIRS_UP && t != TILE_STAIRS_DOWN) return false;
+    if (t != TILE_FLOOR && t != TILE_PIT) return false;
     int o = game.map.objects[y][x];
     if (o == TILE_BLOCK || o == TILE_DOOR_LOCKED) return false;
     for (int i = 0; i < game.enemyCount; i++) {
@@ -67,6 +67,19 @@ static bool EnemyCanPass(int x, int y, void *ctx)
             game.enemies[i].x == x && game.enemies[i].y == y) return false;
     }
     return true;
+}
+
+/* 45-degree forward cone: enemy sees tiles where the dot product of the
+   relative vector with facing exceeds the lateral component. */
+static bool CanSeePlayer(Enemy *e)
+{
+    int rx = game.player.x - e->x;
+    int ry = game.player.y - e->y;
+    if (abs(rx) + abs(ry) > e->visionRange) return false;
+    int fwd = rx * e->facingX + ry * e->facingY;
+    if (fwd <= 0) return false;
+    int lat = abs(rx * e->facingY - ry * e->facingX);
+    return lat <= fwd;
 }
 
 /* ---- floor management ---- */
@@ -90,31 +103,73 @@ static void NewGame(void)
 
 /* ---- enemy turn ---- */
 
+static void HurtPlayer(void)
+{
+    game.player.hp--;
+    game.shakeTimer = 0.30f;
+    if (game.player.hp <= 0) {
+        if (game.score > game.highScore) game.highScore = game.score;
+        game.screen = SCREEN_GAMEOVER;
+    }
+}
+
+static void EnemyLandCheck(Enemy *e)
+{
+    if (game.map.terrain[e->y][e->x] == TILE_PIT) {
+        e->active = false;
+        game.score += SCORE_ENEMY;
+    }
+}
+
 static void MoveEnemies(void)
 {
     PfCtx ctx;
     for (int i = 0; i < game.enemyCount; i++) {
         Enemy *e = &game.enemies[i];
         if (!e->active) continue;
-
-        int dist = abs(e->x - game.player.x) + abs(e->y - game.player.y);
-        if (dist > e->visionRange) continue;
-
         ctx.skipIdx = i;
 
-        if (dist == 1) {
-            game.player.hp--;
-            game.shakeTimer = 0.30f;
-            if (game.player.hp <= 0) {
-                if (game.score > game.highScore) game.highScore = game.score;
-                game.screen = SCREEN_GAMEOVER;
+        int mdist = abs(e->x - game.player.x) + abs(e->y - game.player.y);
+        bool sees  = CanSeePlayer(e);
+
+        if (e->alerted) {
+            /* ---- ALERT: chase with A* ---- */
+            if (!sees && mdist > 1) {
+                e->alerted     = false;
+                e->searchTurns = 4;   /* lost sight → search */
+            } else if (mdist == 1) {
+                HurtPlayer();
+            } else {
+                Vec2i next = AStarNext(MAP_W, MAP_H, EnemyCanPass, &ctx,
+                                       (Vec2i){e->x, e->y},
+                                       (Vec2i){game.player.x, game.player.y},
+                                       e->visionRange);
+                if (next.x >= 0) {
+                    int dx = next.x - e->x, dy = next.y - e->y;
+                    if (dx || dy) { e->facingX = dx; e->facingY = dy; }
+                    e->x = next.x; e->y = next.y;
+                    EnemyLandCheck(e);
+                }
+            }
+        } else if (e->searchTurns > 0) {
+            /* ---- SEARCHING: walk straight in last facing direction ---- */
+            if (sees) {
+                e->alerted     = true;
+                e->searchTurns = 0;
+            } else {
+                e->searchTurns--;
+                int nx = e->x + e->facingX, ny = e->y + e->facingY;
+                if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H &&
+                    EnemyCanPass(nx, ny, &ctx)) {
+                    e->x = nx; e->y = ny;
+                    EnemyLandCheck(e);
+                }
+                if (abs(game.player.x-e->x)+abs(game.player.y-e->y) == 1)
+                    HurtPlayer();
             }
         } else {
-            Vec2i next = AStarNext(MAP_W, MAP_H, EnemyCanPass, &ctx,
-                                   (Vec2i){ e->x, e->y },
-                                   (Vec2i){ game.player.x, game.player.y },
-                                   e->visionRange);
-            if (next.x >= 0) { e->x = next.x; e->y = next.y; }
+            /* ---- DORMANT: stand still, watch forward cone ---- */
+            if (sees) e->alerted = true;
         }
     }
 }
