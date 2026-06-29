@@ -237,14 +237,24 @@ static void DrawWorld(void)
 
     for (int y = startY; y < startY + visY + 2; y++) {
         for (int x = startX; x < startX + visX + 2; x++) {
-            if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) continue;
+            int px = x * TILE_DRAW;
+            int py = y * TILE_DRAW;
+
+            if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) {
+                int dx = (x < 0) ? -x : (x >= MAP_W) ? x - MAP_W + 1 : 0;
+                int dy = (y < 0) ? -y : (y >= MAP_H) ? y - MAP_H + 1 : 0;
+                int b  = 48 - (dx + dy) * 16;
+                if (b <= 0) continue;
+                int tile = ((x ^ y) & 1) ? TILE_WALL_A : TILE_WALL_B;
+                DrawTile(tile, px, py, (Color){b, b, b+8, 255});
+                continue;
+            }
+
             if (!game.map.explored[y][x]) continue;
 
-            Color tint   = s_visible[y][x] ? WHITE : DIM;
-            int   px     = x * TILE_DRAW;
-            int   py     = y * TILE_DRAW;
-            int   terrain = game.map.terrain[y][x];
-            int   obj    = game.map.objects[y][x];
+            Color tint  = s_visible[y][x] ? WHITE : DIM;
+            int terrain = game.map.terrain[y][x];
+            int obj     = game.map.objects[y][x];
 
             DrawTile(terrain, px, py, tint);
             if (obj != TILE_NONE) DrawTile(obj, px, py, tint);
@@ -402,18 +412,13 @@ static void UpdateDrawFrame(void)
             if (IsKeyPressed(KEY_LEFT)  || IsKeyPressed(KEY_A)) TryMove(-1,  0);
             if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) TryMove( 1,  0);
 
-            float camX = (float)(game.player.x * TILE_DRAW + TILE_DRAW / 2);
-            float camY = (float)(game.player.y * TILE_DRAW + TILE_DRAW / 2);
             float halfW = SCREEN_WIDTH  / 2.0f;
             float halfH = SCREEN_HEIGHT / 2.0f;
-            float maxCX = (float)(MAP_W * TILE_DRAW) - halfW;
-            float maxCY = (float)(MAP_H * TILE_DRAW) - halfH;
-            if (camX < halfW)  camX = halfW;
-            if (camX > maxCX)  camX = maxCX;
-            if (camY < halfH)  camY = halfH;
-            if (camY > maxCY)  camY = maxCY;
-            game.camera.target = (Vector2){ camX, camY };
-            game.camera.zoom   = 1.0f;
+            game.camera.target = (Vector2){
+                (float)(game.player.x * TILE_DRAW + TILE_DRAW / 2),
+                (float)(game.player.y * TILE_DRAW + TILE_DRAW / 2)
+            };
+            game.camera.zoom = 1.0f;
             float shakeX = 0.0f, shakeY = 0.0f;
             if (game.shakeTimer > 0.0f) {
                 float mag = game.shakeTimer * 20.0f;
