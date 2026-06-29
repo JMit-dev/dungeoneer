@@ -205,9 +205,22 @@ static void MoveEnemies(void)
         } else {
             /* ---- DORMANT: patrol corridor and watch for player ---- */
             if (e->patrolTimer == 0) {
-                /* try to step forward; flip direction at walls */
-                for (int attempt = 0; attempt < 2; attempt++) {
-                    int nx = e->x + e->facingX, ny = e->y + e->facingY;
+                /* priority: forward → turn (L/R shuffled) → backward */
+                int fx = e->facingX, fy = e->facingY;
+                int dirs[4][2] = {
+                    { fx,  fy},   /* forward          */
+                    { fy, -fx},   /* 90° left  (CCW)  */
+                    {-fy,  fx},   /* 90° right (CW)   */
+                    {-fx, -fy},   /* 180° back        */
+                };
+                if (rand()%2) {  /* shuffle the two side-turns for variety */
+                    int tx = dirs[1][0], ty = dirs[1][1];
+                    dirs[1][0] = dirs[2][0]; dirs[1][1] = dirs[2][1];
+                    dirs[2][0] = tx;         dirs[2][1] = ty;
+                }
+                for (int d = 0; d < 4; d++) {
+                    int dx = dirs[d][0], dy = dirs[d][1];
+                    int nx = e->x + dx,  ny = e->y + dy;
                     bool ok = (nx>=0 && nx<MAP_W && ny>=0 && ny<MAP_H &&
                                game.map.terrain[ny][nx] == TILE_FLOOR &&
                                game.map.objects[ny][nx] == TILE_NONE);
@@ -215,13 +228,11 @@ static void MoveEnemies(void)
                         if (j!=i && game.enemies[j].active &&
                             game.enemies[j].x==nx && game.enemies[j].y==ny) ok=false;
                     if (ok) {
-                        e->x = nx; e->y = ny;
+                        e->facingX = dx; e->facingY = dy;
+                        e->x = nx;       e->y = ny;
                         EnemyLandCheck(e);
                         break;
                     }
-                    /* blocked — flip and try the other way */
-                    e->facingX = -e->facingX;
-                    e->facingY = -e->facingY;
                 }
                 e->patrolTimer = 2 + rand()%3;
             } else if (e->patrolTimer > 0) {
