@@ -250,7 +250,7 @@ static void TryMove(int dx, int dy)
 
     int nx = game.player.x + dx;
     int ny = game.player.y + dy;
-    if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return;
+    if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) { MoveEnemies(); return; }
 
     for (int i = 0; i < game.enemyCount; i++) {
         Enemy *e = &game.enemies[i];
@@ -259,25 +259,25 @@ static void TryMove(int dx, int dy)
             e->active             = false;
             game.score           += SCORE_ENEMY;
             game.player.hasSword  = false;
-            MoveEnemies();
         }
+        MoveEnemies();
         return;
     }
 
     int terrain = game.map.terrain[ny][nx];
     int obj     = game.map.objects[ny][nx];
 
-    if (terrain == TILE_WALL || terrain == TILE_WALL_A || terrain == TILE_WALL_B) return;
-    if (terrain == TILE_NONE) return;
+    if (terrain == TILE_WALL || terrain == TILE_WALL_A || terrain == TILE_WALL_B ||
+        terrain == TILE_NONE) { MoveEnemies(); return; }
 
-    if (obj == TILE_BLOCK) return;
+    if (obj == TILE_BLOCK) { MoveEnemies(); return; }
 
     if (obj == TILE_DOOR_LOCKED) {
         if (game.player.hasKey) {
             game.map.objects[ny][nx] = TILE_DOOR_UNLOCKED;
             game.player.hasKey = false;
-            MoveEnemies();
         }
+        MoveEnemies();
         return;
     }
 
