@@ -130,6 +130,7 @@ static void MoveEnemies(void)
 
         if (dist == 1) {
             game.player.hp--;
+            game.shakeTimer = 0.30f;
             if (game.player.hp <= 0) {
                 if (game.score > game.highScore) game.highScore = game.score;
                 game.screen = SCREEN_GAMEOVER;
@@ -313,6 +314,7 @@ static void UpdateDrawFrame(void)
         int fc = AsepriteFrameCount(game.enemySprite);
         game.enemyFrame = (game.enemyFrame + 1) % fc;
     }
+    if (game.shakeTimer > 0.0f) game.shakeTimer -= dt;
 
     BeginDrawing();
     ClearBackground(BLACK);
@@ -362,8 +364,14 @@ static void UpdateDrawFrame(void)
             if (camY < halfH)  camY = halfH;
             if (camY > maxCY)  camY = maxCY;
             game.camera.target = (Vector2){ camX, camY };
-            game.camera.offset = (Vector2){ halfW, halfH };
             game.camera.zoom   = 1.0f;
+            float shakeX = 0.0f, shakeY = 0.0f;
+            if (game.shakeTimer > 0.0f) {
+                float mag = game.shakeTimer * 20.0f;
+                shakeX = (float)GetRandomValue(-100, 100) / 100.0f * mag;
+                shakeY = (float)GetRandomValue(-100, 100) / 100.0f * mag;
+            }
+            game.camera.offset = (Vector2){ halfW + shakeX, halfH + shakeY };
 
             ComputeVisibility();
             BeginMode2D(game.camera);

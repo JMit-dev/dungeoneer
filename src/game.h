@@ -94,4 +94,5 @@ typedef struct {
     int        enemyFrame;
     float      enemyAnimTimer;
     Camera2D   camera;
+    float      shakeTimer;
 } GameState;
