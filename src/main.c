@@ -17,6 +17,10 @@
 static GameState game     = { 0 };
 static bool s_visible[MAP_H][MAP_W];
 
+#define MOVE_INTERVAL 0.20f   /* seconds between auto-steps */
+static int   s_moveDir[2] = {0, 0};
+static float s_moveTick   = 0.0f;
+
 static void UpdateDrawFrame(void);
 
 /* ---- helpers ---- */
@@ -86,6 +90,8 @@ static bool CanSeePlayer(Enemy *e)
 
 static void StartFloor(void)
 {
+    s_moveDir[0] = s_moveDir[1] = 0;
+    s_moveTick   = 0.0f;
     memset(game.map.explored, 0, sizeof(game.map.explored));
     unsigned seed = (unsigned)time(NULL) ^ (unsigned)(game.floor * 0x9e3779b9u);
     GenerateDungeon(&game.map, game.enemies, &game.enemyCount, game.floor, seed);
@@ -455,10 +461,28 @@ static void UpdateDrawFrame(void)
         } break;
 
         case SCREEN_GAMEPLAY: {
-            if (IsKeyPressed(KEY_UP)    || IsKeyPressed(KEY_W)) TryMove( 0, -1);
-            if (IsKeyPressed(KEY_DOWN)  || IsKeyPressed(KEY_S)) TryMove( 0,  1);
-            if (IsKeyPressed(KEY_LEFT)  || IsKeyPressed(KEY_A)) TryMove(-1,  0);
-            if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) TryMove( 1,  0);
+            /* direction input — pressing a key sets direction and moves immediately */
+            {
+                int ndx = 0, ndy = 0;
+                if (IsKeyPressed(KEY_UP)    || IsKeyPressed(KEY_W)) { ndx= 0; ndy=-1; }
+                if (IsKeyPressed(KEY_DOWN)  || IsKeyPressed(KEY_S)) { ndx= 0; ndy= 1; }
+                if (IsKeyPressed(KEY_LEFT)  || IsKeyPressed(KEY_A)) { ndx=-1; ndy= 0; }
+                if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_D)) { ndx= 1; ndy= 0; }
+                if (ndx || ndy) {
+                    s_moveDir[0] = ndx;
+                    s_moveDir[1] = ndy;
+                    TryMove(ndx, ndy);
+                    s_moveTick = MOVE_INTERVAL;
+                }
+            }
+            /* auto-move tick — keep walking in current direction */
+            if ((s_moveDir[0] || s_moveDir[1]) && game.screen == SCREEN_GAMEPLAY) {
+                s_moveTick -= dt;
+                if (s_moveTick <= 0.0f) {
+                    TryMove(s_moveDir[0], s_moveDir[1]);
+                    s_moveTick += MOVE_INTERVAL;
+                }
+            }
 
             float halfW = SCREEN_WIDTH  / 2.0f;
             float halfH = SCREEN_HEIGHT / 2.0f;
