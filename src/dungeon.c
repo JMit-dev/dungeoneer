@@ -28,7 +28,7 @@ static void shuffle4(int out[4]) {
     }
 }
 
-static void carve_maze(DungeonMap *map) {
+static void carve_maze(DungeonMap *map, int cw, int ch) {
     memset(s_visited, 0, sizeof(s_visited));
     s_visited[0][0] = true;
     map->terrain[1][1] = TILE_FLOOR;
@@ -44,7 +44,7 @@ static void carve_maze(DungeonMap *map) {
             int d = dirs[i];
             int ncx = cur.x + DX4[d];
             int ncy = cur.y + DY4[d];
-            if (ncx < 0 || ncx >= CELL_W || ncy < 0 || ncy >= CELL_H) continue;
+            if (ncx < 0 || ncx >= cw || ncy < 0 || ncy >= ch) continue;
             if (s_visited[ncy][ncx]) continue;
             map->terrain[cur.y*2+1 + DY4[d]][cur.x*2+1 + DX4[d]] = TILE_FLOOR;
             map->terrain[ncy*2+1][ncx*2+1] = TILE_FLOOR;
@@ -56,14 +56,17 @@ static void carve_maze(DungeonMap *map) {
     }
 }
 
-static void add_loops(DungeonMap *map) {
-    /* carve ~20 extra passages to give the player alternate hiding routes */
+static void add_loops(DungeonMap *map, int cw, int ch) {
+    /* extra passages for alternate hiding routes; count scales with map area */
+    int loopTarget = cw * ch * 20 / (CELL_W * CELL_H);
+    if (loopTarget < 5)  loopTarget = 5;
+    if (loopTarget > 20) loopTarget = 20;
     int added = 0;
-    for (int tries = 0; tries < 600 && added < 20; tries++) {
-        int cx = rand() % CELL_W, cy = rand() % CELL_H;
+    for (int tries = 0; tries < 600 && added < loopTarget; tries++) {
+        int cx = rand() % cw, cy = rand() % ch;
         int d  = rand() % 4;
         int ncx = cx + DX4[d], ncy = cy + DY4[d];
-        if (ncx < 0 || ncx >= CELL_W || ncy < 0 || ncy >= CELL_H) continue;
+        if (ncx < 0 || ncx >= cw || ncy < 0 || ncy >= ch) continue;
         int wx = cx*2+1 + DX4[d], wy = cy*2+1 + DY4[d];
         if (map->terrain[wy][wx] == TILE_FLOOR) continue;
         map->terrain[wy][wx] = TILE_FLOOR;
@@ -141,21 +144,27 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
     *enemyCount = 0;
     map->leverActivated = false;
 
+    /* map size grows each floor; cap at full CELL_W × CELL_H */
+    int cw = 8 + (floor - 1) * 3;  if (cw > CELL_W) cw = CELL_W;
+    int ch = 5 + (floor - 1) * 2;  if (ch > CELL_H) ch = CELL_H;
+    map->activeW = cw * 2 + 1;
+    map->activeH = ch * 2 + 1;
+
     for (int y = 0; y < MAP_H; y++)
         for (int x = 0; x < MAP_W; x++) {
             map->terrain[y][x] = (rand()%2) ? TILE_WALL_A : TILE_WALL_B;
             map->objects[y][x] = TILE_NONE;
         }
 
-    carve_maze(map);
-    add_loops(map);
+    carve_maze(map, cw, ch);
+    add_loops(map, cw, ch);
 
-    for (int y = 0; y < MAP_H; y++)
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < map->activeH; y++)
+        for (int x = 0; x < map->activeW; x++) {
             if (map->terrain[y][x] == TILE_FLOOR) continue;
             for (int d = 0; d < 4; d++) {
                 int nx = x+DX4[d], ny = y+DY4[d];
-                if (nx>=0 && nx<MAP_W && ny>=0 && ny<MAP_H &&
+                if (nx>=0 && nx<map->activeW && ny>=0 && ny<map->activeH &&
                     map->terrain[ny][nx] == TILE_FLOOR) {
                     map->terrain[y][x] = TILE_WALL;
                     break;
@@ -219,8 +228,8 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
     int enemyTarget = 2 + floor + rand()%3;
     if (enemyTarget > MAX_ENEMIES) enemyTarget = MAX_ENEMIES;
     for (int attempt = 0; attempt < 500 && *enemyCount < enemyTarget; attempt++) {
-        int x = 1 + rand()%(MAP_W-2);
-        int y = 1 + rand()%(MAP_H-2);
+        int x = 1 + rand()%(map->activeW-2);
+        int y = 1 + rand()%(map->activeH-2);
         if (map->terrain[y][x] != TILE_FLOOR) continue;
         if (map->objects[y][x] != TILE_NONE)  continue;
         if (s_dist[y][x] < 8) continue;
@@ -254,10 +263,10 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         (*enemyCount)++;
     }
 
-    int coinTarget = 3 + rand()%5;
+    int coinTarget = 3 + floor/2 + rand()%4;
     for (int attempt = 0; attempt < 400 && coinTarget > 0; attempt++) {
-        int x = 1 + rand()%(MAP_W-2);
-        int y = 1 + rand()%(MAP_H-2);
+        int x = 1 + rand()%(map->activeW-2);
+        int y = 1 + rand()%(map->activeH-2);
         if (map->terrain[y][x] == TILE_FLOOR && map->objects[y][x] == TILE_NONE &&
             s_dist[y][x] > 0) {
             map->objects[y][x] = TILE_COIN;
@@ -265,9 +274,9 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         }
     }
 
-    int chestTarget = 1 + rand()%3;
-    for (int y = 0; y < MAP_H && chestTarget > 0; y++)
-        for (int x = 0; x < MAP_W && chestTarget > 0; x++)
+    int chestTarget = 1 + floor/3 + rand()%2;
+    for (int y = 0; y < map->activeH && chestTarget > 0; y++)
+        for (int x = 0; x < map->activeW && chestTarget > 0; x++)
             if (s_dist[y][x] > 5 && floor_nbrs(map, x, y) == 1 &&
                 map->objects[y][x] == TILE_NONE) {
                 map->objects[y][x] = TILE_CHEST_CLOSED;
@@ -280,7 +289,7 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         if (chance > 85) chance = 85;
         if ((rand()%100) < chance) {
             for (int attempt = 0; attempt < 300; attempt++) {
-                int x = 1 + rand()%(MAP_W-2), y = 1 + rand()%(MAP_H-2);
+                int x = 1 + rand()%(map->activeW-2), y = 1 + rand()%(map->activeH-2);
                 if (map->terrain[y][x] == TILE_FLOOR &&
                     map->objects[y][x] == TILE_NONE && s_dist[y][x] > 6) {
                     map->objects[y][x] = TILE_SWORD;
@@ -299,7 +308,7 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         if (chance > 80) chance = 80;
         if ((rand()%100) < chance) {
             for (int attempt = 0; attempt < 300; attempt++) {
-                int x = 1 + rand()%(MAP_W-2), y = 1 + rand()%(MAP_H-2);
+                int x = 1 + rand()%(map->activeW-2), y = 1 + rand()%(map->activeH-2);
                 if (map->terrain[y][x] == TILE_FLOOR &&
                     map->objects[y][x] == TILE_NONE && s_dist[y][x] > 3) {
                     map->objects[y][x] = TILE_POTION;
@@ -315,8 +324,8 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
     /* pits on every floor; prefer junction tiles so enemies can fall in tactically */
     int pitTarget = 2 + floor/2 + rand()%3;
     /* first pass: junctions (3+ floor neighbours) — good ambush spots */
-    for (int y = 1; y < MAP_H-1 && pitTarget > 0; y++)
-        for (int x = 1; x < MAP_W-1 && pitTarget > 0; x++)
+    for (int y = 1; y < map->activeH-1 && pitTarget > 0; y++)
+        for (int x = 1; x < map->activeW-1 && pitTarget > 0; x++)
             if (map->terrain[y][x] == TILE_FLOOR &&
                 map->objects[y][x] == TILE_NONE &&
                 floor_nbrs(map, x, y) >= 3 &&
@@ -328,8 +337,8 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
             }
     /* second pass: random floor tiles for the rest */
     for (int attempt = 0; attempt < 400 && pitTarget > 0; attempt++) {
-        int x = 1 + rand()%(MAP_W-2);
-        int y = 1 + rand()%(MAP_H-2);
+        int x = 1 + rand()%(map->activeW-2);
+        int y = 1 + rand()%(map->activeH-2);
         if (map->terrain[y][x] == TILE_FLOOR &&
             map->objects[y][x] == TILE_NONE &&
             s_dist[y][x] > 4 &&

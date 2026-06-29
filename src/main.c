@@ -7,6 +7,7 @@
     #include <emscripten/emscripten.h>
 #endif
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -55,13 +56,14 @@ static void DrawTileCentered(int id, int cx, int cy, int size, float rot, Color 
 static void ComputeVisibility(void)
 {
     int px = game.player.x, py = game.player.y;
+    int aw = game.map.activeW, ah = game.map.activeH;
     memset(s_visible, 0, sizeof(s_visible));
-    for (int y = 0; y < MAP_H; y++) {
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < ah; y++) {
+        for (int x = 0; x < aw; x++) {
             int dx = abs(x - px), dy = abs(y - py);
             int dist = dx > dy ? dx : dy;   /* Chebyshev distance */
             if (dist <= LIGHT_OUTER) {
-                s_visible[y][x]       = true;
+                s_visible[y][x]         = true;
                 game.map.explored[y][x] = true;
             }
         }
@@ -110,8 +112,22 @@ static bool CanSeePlayer(Enemy *e)
 
 /* ---- floor management ---- */
 
+static void SetFloorPalette(int floor)
+{
+    if (floor == 1) {
+        game.palBg = BLACK;
+        game.palFg = WHITE;
+        return;
+    }
+    /* pick a random hue and build a dark bg + light fg pair from it */
+    float hue  = (float)(rand() % 360);
+    game.palBg = ColorFromHSV(hue,            0.70f, 0.13f);
+    game.palFg = ColorFromHSV(fmodf(hue + 20.0f, 360.0f), 0.16f, 0.93f);
+}
+
 static void StartFloor(void)
 {
+    SetFloorPalette(game.floor);
     s_moveDir[0] = s_moveDir[1] = 0;
     s_moveTick   = 0.0f;
     s_swordDirX  = 1; s_swordDirY = 0;
@@ -358,21 +374,36 @@ static void DrawWorld(void)
     int startX = (int)(game.camera.target.x / TILE_DRAW) - visX / 2;
     int startY = (int)(game.camera.target.y / TILE_DRAW) - visY / 2;
 
-    static const Color DIM = { 70, 70, 90, 255 };
+    Color fg  = game.palFg;
+    /* dim: ~12% brightness of fg, used for explored-but-dark tiles */
+    Color dim = {
+        (unsigned char)(fg.r * 0.12f),
+        (unsigned char)(fg.g * 0.12f),
+        (unsigned char)(fg.b * 0.12f),
+        255
+    };
     int plx = game.player.x, ply = game.player.y;
+    int aw  = game.map.activeW, ah = game.map.activeH;
 
     for (int y = startY; y < startY + visY + 2; y++) {
         for (int x = startX; x < startX + visX + 2; x++) {
-            int px = x * TILE_DRAW;
-            int py = y * TILE_DRAW;
+            int wx = x * TILE_DRAW;
+            int wy = y * TILE_DRAW;
 
-            if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H) {
-                int dx = (x < 0) ? -x : (x >= MAP_W) ? x - MAP_W + 1 : 0;
-                int dy = (y < 0) ? -y : (y >= MAP_H) ? y - MAP_H + 1 : 0;
-                int b  = 48 - (dx + dy) * 16;
+            /* out of map bounds or outside the active dungeon area → fading wall */
+            if (x < 0 || x >= MAP_W || y < 0 || y >= MAP_H ||
+                x >= aw || y >= ah) {
+                int ddx = (x < 0) ? -x : (x >= aw) ? x - aw + 1 : 0;
+                int ddy = (y < 0) ? -y : (y >= ah) ? y - ah + 1 : 0;
+                int b   = 48 - (ddx + ddy) * 16;
                 if (b <= 0) continue;
                 int tile = ((x ^ y) & 1) ? TILE_WALL_A : TILE_WALL_B;
-                DrawTile(tile, px, py, (Color){b, b, b+8, 255});
+                DrawTile(tile, wx, wy, (Color){
+                    (unsigned char)(fg.r * b / 255),
+                    (unsigned char)(fg.g * b / 255),
+                    (unsigned char)(fg.b * b / 255),
+                    255
+                });
                 continue;
             }
 
@@ -383,25 +414,25 @@ static void DrawWorld(void)
                 int cdx  = abs(x - plx), cdy = abs(y - ply);
                 int dist = cdx > cdy ? cdx : cdy;
                 if (dist <= LIGHT_INNER) {
-                    tint = WHITE;
+                    tint = fg;
                 } else {
                     float t = (float)(dist - LIGHT_INNER) /
                               (float)(LIGHT_OUTER - LIGHT_INNER);
                     tint = (Color){
-                        (unsigned char)(255 + (DIM.r - 255) * t),
-                        (unsigned char)(255 + (DIM.g - 255) * t),
-                        (unsigned char)(255 + (DIM.b - 255) * t),
+                        (unsigned char)(fg.r + (dim.r - fg.r) * t),
+                        (unsigned char)(fg.g + (dim.g - fg.g) * t),
+                        (unsigned char)(fg.b + (dim.b - fg.b) * t),
                         255
                     };
                 }
             } else {
-                tint = DIM;
+                tint = dim;
             }
 
             int terrain = game.map.terrain[y][x];
             int obj     = game.map.objects[y][x];
-            DrawTile(terrain, px, py, tint);
-            if (obj != TILE_NONE) DrawTile(obj, px, py, tint);
+            DrawTile(terrain, wx, wy, tint);
+            if (obj != TILE_NONE) DrawTile(obj, wx, wy, tint);
         }
     }
 
@@ -409,12 +440,13 @@ static void DrawWorld(void)
         Enemy *e = &game.enemies[i];
         if (!e->active || !s_visible[e->y][e->x]) continue;
         Vector2 pos = { (float)(e->x * TILE_DRAW), (float)(e->y * TILE_DRAW) };
-        DrawAsepriteEx(game.enemySprite, game.enemyFrame, pos, 0.0f, TILE_SCALE, WHITE);
+        DrawAsepriteEx(game.enemySprite, game.enemyFrame, pos, 0.0f, TILE_SCALE, fg);
 
         /* facing arrow — only shown when dormant or calming, not during chase/search */
         if (!e->alerted && e->searchTurns <= 0)
             DrawFacingArrow(e->x * TILE_DRAW, e->y * TILE_DRAW,
-                            e->facingX, e->facingY, (Color){255, 255, 255, 180});
+                            e->facingX, e->facingY,
+                            (Color){fg.r, fg.g, fg.b, 180});
 
         /* state indicator above enemy */
         int indId = -1;
@@ -425,13 +457,13 @@ static void DrawWorld(void)
             int sz  = TILE_DRAW * 3 / 4;
             int icx = e->x * TILE_DRAW + TILE_DRAW / 2;
             int icy = e->y * TILE_DRAW - sz / 2;
-            DrawTileCentered(indId, icx, icy, sz, 0.0f, WHITE);
+            DrawTileCentered(indId, icx, icy, sz, 0.0f, fg);
         }
     }
 
     Vector2 ppos = { (float)(game.player.x * TILE_DRAW),
                      (float)(game.player.y * TILE_DRAW) };
-    DrawAsepriteEx(game.playerSprite, game.playerFrame, ppos, 0.0f, TILE_SCALE, WHITE);
+    DrawAsepriteEx(game.playerSprite, game.playerFrame, ppos, 0.0f, TILE_SCALE, fg);
 
     /* held sword sticks out in current movement direction */
     if (game.player.hasSword) {
@@ -442,7 +474,7 @@ static void DrawWorld(void)
         else if (s_swordDirY ==  1) rot =  90.0f;
         int scx = (game.player.x + s_swordDirX) * TILE_DRAW + TILE_DRAW / 2;
         int scy = (game.player.y + s_swordDirY) * TILE_DRAW + TILE_DRAW / 2;
-        DrawTileCentered(TILE_SWORD, scx, scy, TILE_DRAW, rot, WHITE);
+        DrawTileCentered(TILE_SWORD, scx, scy, TILE_DRAW, rot, fg);
     }
 }
 
@@ -466,16 +498,17 @@ static void DrawHUD(void)
 
 static void DrawMinimap(void)
 {
-    enum { MS = 2 };                               /* pixels per tile        */
-    const int MW = MAP_W * MS;                     /* 120                    */
-    const int MH = MAP_H * MS;                     /* 80                     */
-    const int MX = SCREEN_WIDTH  - MW - 8;
-    const int MY = 8;
+    enum { MS = 2 };
+    int aw = game.map.activeW, ah = game.map.activeH;
+    int MW = aw * MS;
+    int MH = ah * MS;
+    int MX = SCREEN_WIDTH  - MW - 8;
+    int MY = 8;
 
     DrawRectangle(MX - 2, MY - 2, MW + 4, MH + 4, Fade(BLACK, 0.75f));
 
-    for (int y = 0; y < MAP_H; y++) {
-        for (int x = 0; x < MAP_W; x++) {
+    for (int y = 0; y < ah; y++) {
+        for (int x = 0; x < aw; x++) {
             if (!game.map.explored[y][x]) continue;
 
             bool vis     = s_visible[y][x];
@@ -574,6 +607,7 @@ static void UpdateDrawFrame(void)
         } break;
 
         case SCREEN_GAMEPLAY: {
+            ClearBackground(game.palBg);
             /* direction input — pressing a key sets direction and moves immediately */
             {
                 int ndx = 0, ndy = 0;

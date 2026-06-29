@@ -84,6 +84,7 @@ typedef struct {
     int  spawnX, spawnY;
     int  stairsDownX, stairsDownY;
     bool leverActivated;
+    int  activeW, activeH;   /* actual carved area; tiles outside are dead wall */
 } DungeonMap;
 
 typedef struct {
@@ -107,4 +108,6 @@ typedef struct {
     float      shakeTimer;
     int        swordMissedFloors;
     int        potionMissedFloors;
+    Color      palBg;   /* background / clear color for current floor */
+    Color      palFg;   /* foreground tint for lit tiles and sprites  */
 } GameState;
