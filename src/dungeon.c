@@ -225,7 +225,12 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
     for (int i = 0; i < pathLen; i++)
         s_onCrit[s_path[i].y][s_path[i].x] = true;
 
-    int enemyTarget = 2 + floor + rand()%3;
+    /* enemy count and vision scale with floor so floor 1 isn't overwhelming */
+    int visionRange = map->activeW / 3;
+    if (visionRange > 10) visionRange = 10;
+    if (visionRange < 4)  visionRange = 4;
+
+    int enemyTarget = 1 + floor/2 + rand()%2;
     if (enemyTarget > MAX_ENEMIES) enemyTarget = MAX_ENEMIES;
     for (int attempt = 0; attempt < 500 && *enemyCount < enemyTarget; attempt++) {
         int x = 1 + rand()%(map->activeW-2);
@@ -255,7 +260,7 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         enemies[*enemyCount] = (Enemy){
             .x = x, .y = y,
             .hp = 2 + floor/2, .maxHp = 2 + floor/2,
-            .active = true, .visionRange = 10,
+            .active = true, .visionRange = visionRange,
             .facingX = DX4[bestDir], .facingY = DY4[bestDir],
             .alerted = false, .searchTurns = 0,
             .patrolTimer = ptimer,
@@ -321,30 +326,51 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         }
     }
 
-    /* pits on every floor; prefer junction tiles so enemies can fall in tactically */
-    int pitTarget = 2 + floor/2 + rand()%3;
-    /* first pass: junctions (3+ floor neighbours) — good ambush spots */
-    for (int y = 1; y < map->activeH-1 && pitTarget > 0; y++)
-        for (int x = 1; x < map->activeW-1 && pitTarget > 0; x++)
-            if (map->terrain[y][x] == TILE_FLOOR &&
-                map->objects[y][x] == TILE_NONE &&
-                floor_nbrs(map, x, y) >= 3 &&
-                s_dist[y][x] > 6 &&
-                !s_onCrit[y][x] &&
-                !(x == stairX && y == stairY)) {
-                map->terrain[y][x] = TILE_PIT;
-                pitTarget--;
-            }
-    /* second pass: random floor tiles for the rest */
-    for (int attempt = 0; attempt < 400 && pitTarget > 0; attempt++) {
-        int x = 1 + rand()%(map->activeW-2);
-        int y = 1 + rand()%(map->activeH-2);
-        if (map->terrain[y][x] == TILE_FLOOR &&
-            map->objects[y][x] == TILE_NONE &&
-            s_dist[y][x] > 4 &&
-            !(x == stairX && y == stairY)) {
+    /* pits — count scales with floor, each one connectivity-checked before committing */
+    int pitTarget = (floor - 1) / 2 + rand()%2;   /* floor 1: 0-1, floor 3: 1-2, floor 5: 2-3 */
+
+    /* locate key or lever so we verify the player can still reach it after each pit */
+    int chkX = -1, chkY = -1;
+    for (int j = 0; j < map->activeH && chkX < 0; j++)
+        for (int k = 0; k < map->activeW && chkX < 0; k++)
+            if (map->objects[j][k] == TILE_KEY || map->objects[j][k] == TILE_LEVER_OFF)
+                { chkX = k; chkY = j; }
+
+    /* fresh BFS so distance values reflect current map (no pits yet) */
+    do_bfs(map, spawnX, spawnY, -1, -1);
+
+/* after placing a pit, BFS must still reach stairs AND the key/lever */
+#define CONNECTED() \
+    (s_dist[stairY][stairX] >= 0 && (chkX < 0 || s_dist[chkY][chkX] >= 0))
+
+    /* first pass: junctions (3+ floor neighbours) — good tactical spots */
+    for (int y = 1; y < map->activeH-1 && pitTarget > 0; y++) {
+        for (int x = 1; x < map->activeW-1 && pitTarget > 0; x++) {
+            if (map->terrain[y][x] != TILE_FLOOR)  continue;
+            if (map->objects[y][x] != TILE_NONE)   continue;
+            if (floor_nbrs(map, x, y) < 3)         continue;
+            if (s_dist[y][x] < 8)                  continue;
+            if (s_onCrit[y][x])                    continue;
+            if (x == stairX && y == stairY)        continue;
             map->terrain[y][x] = TILE_PIT;
-            pitTarget--;
+            do_bfs(map, spawnX, spawnY, -1, -1);
+            if (CONNECTED()) { pitTarget--; }
+            else { map->terrain[y][x] = TILE_FLOOR; do_bfs(map, spawnX, spawnY, -1, -1); }
         }
     }
+    /* second pass: random floor tiles */
+    for (int attempt = 0; attempt < 200 && pitTarget > 0; attempt++) {
+        int x = 1 + rand()%(map->activeW-2);
+        int y = 1 + rand()%(map->activeH-2);
+        if (map->terrain[y][x] != TILE_FLOOR)  continue;
+        if (map->objects[y][x] != TILE_NONE)   continue;
+        if (s_dist[y][x] < 5)                  continue;
+        if (s_onCrit[y][x])                    continue;
+        if (x == stairX && y == stairY)        continue;
+        map->terrain[y][x] = TILE_PIT;
+        do_bfs(map, spawnX, spawnY, -1, -1);
+        if (CONNECTED()) { pitTarget--; }
+        else { map->terrain[y][x] = TILE_FLOOR; do_bfs(map, spawnX, spawnY, -1, -1); }
+    }
+#undef CONNECTED
 }
