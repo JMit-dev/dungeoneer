@@ -285,7 +285,56 @@ static void DrawHUD(void)
     if (game.player.hasKey)
         DrawText("[KEY]", 8, 72, 14, YELLOW);
 
-    DrawFPS(SCREEN_WIDTH - 80, 8);
+}
+
+static void DrawMinimap(void)
+{
+    enum { MS = 2 };                               /* pixels per tile        */
+    const int MW = MAP_W * MS;                     /* 120                    */
+    const int MH = MAP_H * MS;                     /* 80                     */
+    const int MX = SCREEN_WIDTH  - MW - 8;
+    const int MY = 8;
+
+    DrawRectangle(MX - 2, MY - 2, MW + 4, MH + 4, Fade(BLACK, 0.75f));
+
+    for (int y = 0; y < MAP_H; y++) {
+        for (int x = 0; x < MAP_W; x++) {
+            if (!game.map.explored[y][x]) continue;
+
+            bool vis     = s_visible[y][x];
+            int  terrain = game.map.terrain[y][x];
+            int  obj     = game.map.objects[y][x];
+            int  px      = MX + x * MS;
+            int  py      = MY + y * MS;
+
+            Color tc;
+            if (terrain == TILE_FLOOR || terrain == TILE_PIT)
+                tc = vis ? (Color){160,160,185,255} : (Color){75,75,90,255};
+            else
+                tc = vis ? (Color){80,80,95,255}    : (Color){45,45,55,255};
+            DrawRectangle(px, py, MS, MS, tc);
+
+            if (!vis || obj == TILE_NONE) continue;
+            Color oc;
+            switch (obj) {
+                case TILE_STAIRS_DOWN:  oc = SKYBLUE;                    break;
+                case TILE_STAIRS_UP:    oc = (Color){100,210,100,255};   break;
+                case TILE_DOOR_LOCKED:  oc = ORANGE;                     break;
+                case TILE_KEY:          oc = YELLOW;                     break;
+                case TILE_CHEST_CLOSED: oc = GOLD;                       break;
+                default:                continue;
+            }
+            DrawRectangle(px, py, MS, MS, oc);
+        }
+    }
+
+    for (int i = 0; i < game.enemyCount; i++) {
+        Enemy *e = &game.enemies[i];
+        if (!e->active || !s_visible[e->y][e->x]) continue;
+        DrawRectangle(MX + e->x * MS, MY + e->y * MS, MS, MS, RED);
+    }
+
+    DrawRectangle(MX + game.player.x * MS, MY + game.player.y * MS, MS, MS, WHITE);
 }
 
 /* ---- main loop ---- */
@@ -378,6 +427,7 @@ static void UpdateDrawFrame(void)
             DrawWorld();
             EndMode2D();
             DrawHUD();
+            DrawMinimap();
         } break;
 
         case SCREEN_GAMEOVER: {
