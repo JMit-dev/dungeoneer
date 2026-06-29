@@ -15,6 +15,7 @@ static IV2  s_bfsQ[TILE_CNT];
 static int  s_dist[MAP_H][MAP_W];
 static IV2  s_parent[MAP_H][MAP_W];
 static IV2  s_path[TILE_CNT];
+static bool s_onCrit[MAP_H][MAP_W];
 
 static const int DX4[4] = { 0,  0, 1, -1 };
 static const int DY4[4] = {-1,  1, 0,  0 };
@@ -52,6 +53,21 @@ static void carve_maze(DungeonMap *map) {
             found = true;
         }
         if (!found) top--;
+    }
+}
+
+static void add_loops(DungeonMap *map) {
+    /* carve ~20 extra passages to give the player alternate hiding routes */
+    int added = 0;
+    for (int tries = 0; tries < 600 && added < 20; tries++) {
+        int cx = rand() % CELL_W, cy = rand() % CELL_H;
+        int d  = rand() % 4;
+        int ncx = cx + DX4[d], ncy = cy + DY4[d];
+        if (ncx < 0 || ncx >= CELL_W || ncy < 0 || ncy >= CELL_H) continue;
+        int wx = cx*2+1 + DX4[d], wy = cy*2+1 + DY4[d];
+        if (map->terrain[wy][wx] == TILE_FLOOR) continue;
+        map->terrain[wy][wx] = TILE_FLOOR;
+        added++;
     }
 }
 
@@ -131,6 +147,7 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         }
 
     carve_maze(map);
+    add_loops(map);
 
     for (int y = 0; y < MAP_H; y++)
         for (int x = 0; x < MAP_W; x++) {
@@ -193,6 +210,11 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         }
     }
 
+    /* mark critical path so enemies never block the only route to stairs */
+    memset(s_onCrit, 0, sizeof(s_onCrit));
+    for (int i = 0; i < pathLen; i++)
+        s_onCrit[s_path[i].y][s_path[i].x] = true;
+
     int enemyTarget = 2 + floor + rand()%3;
     if (enemyTarget > MAX_ENEMIES) enemyTarget = MAX_ENEMIES;
     for (int attempt = 0; attempt < 500 && *enemyCount < enemyTarget; attempt++) {
@@ -201,6 +223,7 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         if (map->terrain[y][x] != TILE_FLOOR) continue;
         if (map->objects[y][x] != TILE_NONE)  continue;
         if (s_dist[y][x] < 8) continue;
+        if (s_onCrit[y][x]) continue;
         bool dup = false;
         for (int i = 0; i < *enemyCount && !dup; i++)
             if (enemies[i].x == x && enemies[i].y == y) dup = true;
@@ -233,18 +256,30 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
                 chestTarget--;
             }
 
-    if (floor >= 2) {
-        int pitTarget = 1 + floor/2 + rand()%3;
-        for (int attempt = 0; attempt < 400 && pitTarget > 0; attempt++) {
-            int x = 1 + rand()%(MAP_W-2);
-            int y = 1 + rand()%(MAP_H-2);
+    /* pits on every floor; prefer junction tiles so enemies can fall in tactically */
+    int pitTarget = 2 + floor/2 + rand()%3;
+    /* first pass: junctions (3+ floor neighbours) — good ambush spots */
+    for (int y = 1; y < MAP_H-1 && pitTarget > 0; y++)
+        for (int x = 1; x < MAP_W-1 && pitTarget > 0; x++)
             if (map->terrain[y][x] == TILE_FLOOR &&
                 map->objects[y][x] == TILE_NONE &&
-                s_dist[y][x] > 10 &&
+                floor_nbrs(map, x, y) >= 3 &&
+                s_dist[y][x] > 6 &&
+                !s_onCrit[y][x] &&
                 !(x == stairX && y == stairY)) {
                 map->terrain[y][x] = TILE_PIT;
                 pitTarget--;
             }
+    /* second pass: random floor tiles for the rest */
+    for (int attempt = 0; attempt < 400 && pitTarget > 0; attempt++) {
+        int x = 1 + rand()%(MAP_W-2);
+        int y = 1 + rand()%(MAP_H-2);
+        if (map->terrain[y][x] == TILE_FLOOR &&
+            map->objects[y][x] == TILE_NONE &&
+            s_dist[y][x] > 4 &&
+            !(x == stairX && y == stairY)) {
+            map->terrain[y][x] = TILE_PIT;
+            pitTarget--;
         }
     }
 }
