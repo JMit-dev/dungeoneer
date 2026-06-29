@@ -241,8 +241,8 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
             }
             if (len > bestLen) { bestLen = len; bestDir = d; }
         }
-        /* 1-in-3 enemies stands still; the rest patrol back and forth */
-        int ptimer = (rand()%3 == 0) ? -1 : (2 + rand()%3);
+        /* 1-in-3 enemies stands still; the rest move every tick */
+        int ptimer = (rand()%3 == 0) ? -1 : 0;
         enemies[*enemyCount] = (Enemy){
             .x = x, .y = y,
             .hp = 2 + floor/2, .maxHp = 2 + floor/2,

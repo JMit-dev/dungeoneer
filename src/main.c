@@ -204,7 +204,8 @@ static void MoveEnemies(void)
             else       { e->searchTurns++; }
         } else {
             /* ---- DORMANT: patrol corridor and watch for player ---- */
-            if (e->patrolTimer == 0) {
+            /* patrolTimer == -1 means stationary; otherwise move every tick */
+            if (e->patrolTimer >= 0) {
                 /* priority: forward → turn (L/R shuffled) → backward */
                 int fx = e->facingX, fy = e->facingY;
                 int dirs[4][2] = {
@@ -234,9 +235,6 @@ static void MoveEnemies(void)
                         break;
                     }
                 }
-                e->patrolTimer = 2 + rand()%3;
-            } else if (e->patrolTimer > 0) {
-                e->patrolTimer--;
             }
             /* check vision from current position (after any patrol step) */
             if (CanSeePlayer(e)) e->alerted = true;
@@ -341,6 +339,18 @@ static void TryMove(int dx, int dy)
 
 /* ---- rendering ---- */
 
+/* small filled triangle showing which way an enemy faces */
+static void DrawFacingArrow(int ex, int ey, int fdx, int fdy, Color c)
+{
+    float cx = ex + TILE_DRAW * 0.5f;
+    float cy = ey + TILE_DRAW * 0.5f;
+    float px = -(float)fdy, py = (float)fdx; /* CCW perpendicular */
+    Vector2 tip = { cx + fdx*14.0f,          cy + fdy*14.0f          };
+    Vector2 bl  = { cx + fdx*5.0f + px*6.0f, cy + fdy*5.0f + py*6.0f };
+    Vector2 br  = { cx + fdx*5.0f - px*6.0f, cy + fdy*5.0f - py*6.0f };
+    DrawTriangle(tip, br, bl, c);
+}
+
 static void DrawWorld(void)
 {
     int visX   = SCREEN_WIDTH  / TILE_DRAW + 4;
@@ -400,6 +410,11 @@ static void DrawWorld(void)
         if (!e->active || !s_visible[e->y][e->x]) continue;
         Vector2 pos = { (float)(e->x * TILE_DRAW), (float)(e->y * TILE_DRAW) };
         DrawAsepriteEx(game.enemySprite, game.enemyFrame, pos, 0.0f, TILE_SCALE, WHITE);
+
+        /* facing arrow — only shown when dormant or calming, not during chase/search */
+        if (!e->alerted && e->searchTurns <= 0)
+            DrawFacingArrow(e->x * TILE_DRAW, e->y * TILE_DRAW,
+                            e->facingX, e->facingY, (Color){255, 255, 255, 180});
 
         /* state indicator above enemy */
         int indId = -1;
