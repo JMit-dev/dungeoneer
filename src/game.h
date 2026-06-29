@@ -40,6 +40,11 @@
 #define TILE_CHEST_OPEN     13
 #define TILE_KEY            14
 #define TILE_COIN           15
+#define TILE_SWORD          16
+#define TILE_POTION         17
+#define TILE_IND_ALERT      18  /* ! */
+#define TILE_IND_SEARCH     19  /* ? */
+#define TILE_IND_CALM       20  /* ... */
 
 #define SCORE_COIN    10
 #define SCORE_CHEST   50
@@ -65,10 +70,11 @@ typedef struct {
 } Enemy;
 
 typedef struct {
-    int x, y;
-    int hp, maxHp;
+    int  x, y;
+    int  hp, maxHp;
     bool hasKey;
-    int coins;
+    bool hasSword;
+    int  coins;
 } Player;
 
 typedef struct {
@@ -99,4 +105,6 @@ typedef struct {
     float      enemyAnimTimer;
     Camera2D   camera;
     float      shakeTimer;
+    int        swordMissedFloors;
+    int        potionMissedFloors;
 } GameState;

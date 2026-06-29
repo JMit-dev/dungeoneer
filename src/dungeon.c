@@ -134,7 +134,8 @@ static void try_place_obstacle(DungeonMap *map, int spawnX, int spawnY,
 }
 
 void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
-                     int floor, unsigned seed)
+                     int floor, unsigned seed,
+                     int *swordMissed, int *potionMissed)
 {
     srand(seed);
     *enemyCount = 0;
@@ -272,6 +273,44 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
                 map->objects[y][x] = TILE_CHEST_CLOSED;
                 chestTarget--;
             }
+
+    /* sword — accumulating spawn probability, resets on spawn */
+    {
+        int chance = 15 + (*swordMissed) * 15;
+        if (chance > 85) chance = 85;
+        if ((rand()%100) < chance) {
+            for (int attempt = 0; attempt < 300; attempt++) {
+                int x = 1 + rand()%(MAP_W-2), y = 1 + rand()%(MAP_H-2);
+                if (map->terrain[y][x] == TILE_FLOOR &&
+                    map->objects[y][x] == TILE_NONE && s_dist[y][x] > 6) {
+                    map->objects[y][x] = TILE_SWORD;
+                    break;
+                }
+            }
+            *swordMissed = 0;
+        } else {
+            (*swordMissed)++;
+        }
+    }
+
+    /* potion — same mechanic but rarer */
+    {
+        int chance = 10 + (*potionMissed) * 10;
+        if (chance > 80) chance = 80;
+        if ((rand()%100) < chance) {
+            for (int attempt = 0; attempt < 300; attempt++) {
+                int x = 1 + rand()%(MAP_W-2), y = 1 + rand()%(MAP_H-2);
+                if (map->terrain[y][x] == TILE_FLOOR &&
+                    map->objects[y][x] == TILE_NONE && s_dist[y][x] > 3) {
+                    map->objects[y][x] = TILE_POTION;
+                    break;
+                }
+            }
+            *potionMissed = 0;
+        } else {
+            (*potionMissed)++;
+        }
+    }
 
     /* pits on every floor; prefer junction tiles so enemies can fall in tactically */
     int pitTarget = 2 + floor/2 + rand()%3;

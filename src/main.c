@@ -18,8 +18,10 @@ static GameState game     = { 0 };
 static bool s_visible[MAP_H][MAP_W];
 
 #define MOVE_INTERVAL 0.20f   /* seconds between auto-steps */
-static int   s_moveDir[2] = {0, 0};
-static float s_moveTick   = 0.0f;
+static int   s_moveDir[2]  = {0, 0};
+static float s_moveTick    = 0.0f;
+static int   s_swordDirX   = 1;   /* direction the held sword faces */
+static int   s_swordDirY   = 0;
 
 static void UpdateDrawFrame(void);
 
@@ -34,6 +36,18 @@ static void DrawTile(int tileId, int px, int py, Color tint)
                       (float)TILE_SIZE, (float)TILE_SIZE };
     Rectangle dst = { (float)px, (float)py, (float)TILE_DRAW, (float)TILE_DRAW };
     DrawTexturePro(game.tileset, src, dst, (Vector2){0, 0}, 0.0f, tint);
+}
+
+/* draw a tile centered at world pixel (cx, cy), optionally rotated */
+static void DrawTileCentered(int id, int cx, int cy, int size, float rot, Color tint)
+{
+    if (id < 0) return;
+    int col = id % 8, row = id / 8;
+    Rectangle src = { (float)(col * TILE_SIZE), (float)(row * TILE_SIZE),
+                      (float)TILE_SIZE,          (float)TILE_SIZE };
+    float half = size * 0.5f;
+    Rectangle dst = { (float)cx, (float)cy, (float)size, (float)size };
+    DrawTexturePro(game.tileset, src, dst, (Vector2){half, half}, rot, tint);
 }
 
 /* ---- fog of war ---- */
@@ -100,9 +114,11 @@ static void StartFloor(void)
 {
     s_moveDir[0] = s_moveDir[1] = 0;
     s_moveTick   = 0.0f;
+    s_swordDirX  = 1; s_swordDirY = 0;
     memset(game.map.explored, 0, sizeof(game.map.explored));
     unsigned seed = (unsigned)time(NULL) ^ (unsigned)(game.floor * 0x9e3779b9u);
-    GenerateDungeon(&game.map, game.enemies, &game.enemyCount, game.floor, seed);
+    GenerateDungeon(&game.map, game.enemies, &game.enemyCount, game.floor, seed,
+                    &game.swordMissedFloors, &game.potionMissedFloors);
     game.player.x = game.map.spawnX;
     game.player.y = game.map.spawnY;
 }
@@ -171,7 +187,6 @@ static void MoveEnemies(void)
                 e->alerted     = true;
                 e->searchTurns = 0;
             } else {
-                e->searchTurns--;
                 int nx = e->x + e->facingX, ny = e->y + e->facingY;
                 if (nx >= 0 && nx < MAP_W && ny >= 0 && ny < MAP_H &&
                     EnemyCanPass(nx, ny, &ctx)) {
@@ -180,7 +195,13 @@ static void MoveEnemies(void)
                 }
                 if (abs(game.player.x-e->x)+abs(game.player.y-e->y) == 1)
                     HurtPlayer();
+                e->searchTurns--;
+                if (e->searchTurns == 0) e->searchTurns = -8; /* → calming */
             }
+        } else if (e->searchTurns < 0) {
+            /* ---- CALMING: stand still briefly, show "..." ---- */
+            if (sees) { e->alerted = true; e->searchTurns = 0; }
+            else       { e->searchTurns++; }
         } else {
             /* ---- DORMANT: patrol corridor and watch for player ---- */
             if (e->patrolTimer == 0) {
@@ -222,9 +243,17 @@ static void TryMove(int dx, int dy)
     int ny = game.player.y + dy;
     if (nx < 0 || nx >= MAP_W || ny < 0 || ny >= MAP_H) return;
 
-    for (int i = 0; i < game.enemyCount; i++)
-        if (game.enemies[i].active &&
-            game.enemies[i].x == nx && game.enemies[i].y == ny) return;
+    for (int i = 0; i < game.enemyCount; i++) {
+        Enemy *e = &game.enemies[i];
+        if (!e->active || e->x != nx || e->y != ny) continue;
+        if (game.player.hasSword) {
+            e->active             = false;
+            game.score           += SCORE_ENEMY;
+            game.player.hasSword  = false;
+            MoveEnemies();
+        }
+        return;
+    }
 
     int terrain = game.map.terrain[ny][nx];
     int obj     = game.map.objects[ny][nx];
@@ -266,6 +295,14 @@ static void TryMove(int dx, int dy)
             game.map.objects[ny][nx] = TILE_CHEST_OPEN;
             game.score += SCORE_CHEST;
             game.player.coins += 5;
+            break;
+        case TILE_SWORD:
+            game.map.objects[ny][nx] = TILE_NONE;
+            game.player.hasSword = true;
+            break;
+        case TILE_POTION:
+            game.map.objects[ny][nx] = TILE_NONE;
+            game.player.hp = game.player.maxHp;
             break;
         case TILE_LEVER_OFF:
             game.map.objects[ny][nx] = TILE_LEVER_ON;
@@ -349,38 +386,56 @@ static void DrawWorld(void)
 
     for (int i = 0; i < game.enemyCount; i++) {
         Enemy *e = &game.enemies[i];
-        if (!e->active) continue;
-        if (!s_visible[e->y][e->x]) continue;
+        if (!e->active || !s_visible[e->y][e->x]) continue;
         Vector2 pos = { (float)(e->x * TILE_DRAW), (float)(e->y * TILE_DRAW) };
         DrawAsepriteEx(game.enemySprite, game.enemyFrame, pos, 0.0f, TILE_SCALE, WHITE);
 
-        int barW = TILE_DRAW - 4;
-        int barX = e->x * TILE_DRAW + 2;
-        int barY = e->y * TILE_DRAW - 4;
-        DrawRectangle(barX, barY, barW, 3, DARKGRAY);
-        DrawRectangle(barX, barY, barW * e->hp / e->maxHp, 3, RED);
+        /* state indicator above enemy */
+        int indId = -1;
+        if      (e->alerted)          indId = TILE_IND_ALERT;
+        else if (e->searchTurns > 0)  indId = TILE_IND_SEARCH;
+        else if (e->searchTurns < 0)  indId = TILE_IND_CALM;
+        if (indId >= 0) {
+            int sz  = TILE_DRAW * 3 / 4;
+            int icx = e->x * TILE_DRAW + TILE_DRAW / 2;
+            int icy = e->y * TILE_DRAW - sz / 2;
+            DrawTileCentered(indId, icx, icy, sz, 0.0f, WHITE);
+        }
     }
 
     Vector2 ppos = { (float)(game.player.x * TILE_DRAW),
                      (float)(game.player.y * TILE_DRAW) };
     DrawAsepriteEx(game.playerSprite, game.playerFrame, ppos, 0.0f, TILE_SCALE, WHITE);
+
+    /* held sword sticks out in current movement direction */
+    if (game.player.hasSword) {
+        float rot = 0.0f;
+        if      (s_swordDirX ==  1) rot =   0.0f;
+        else if (s_swordDirX == -1) rot = 180.0f;
+        else if (s_swordDirY == -1) rot = 270.0f;
+        else if (s_swordDirY ==  1) rot =  90.0f;
+        int scx = (game.player.x + s_swordDirX) * TILE_DRAW + TILE_DRAW / 2;
+        int scy = (game.player.y + s_swordDirY) * TILE_DRAW + TILE_DRAW / 2;
+        DrawTileCentered(TILE_SWORD, scx, scy, TILE_DRAW, rot, WHITE);
+    }
 }
 
 static void DrawHUD(void)
 {
-    DrawRectangle(0, 0, 150, 92, Fade(BLACK, 0.72f));
-    int barW = 120, barH = 12;
-    DrawRectangle(8, 8, barW, barH, DARKGRAY);
-    DrawRectangle(8, 8, barW * game.player.hp / game.player.maxHp, barH, RED);
-    DrawText(TextFormat("HP %d/%d", game.player.hp, game.player.maxHp), 10, 9, 10, WHITE);
+    DrawRectangle(0, 0, 144, 68, Fade(BLACK, 0.72f));
 
-    DrawText(TextFormat("Floor: %d", game.floor),  8, 24, 14, RAYWHITE);
-    DrawText(TextFormat("Score: %d", game.score),  8, 40, 14, RAYWHITE);
-    DrawText(TextFormat("Coins: %d", game.player.coins), 8, 56, 14, GOLD);
+    /* HP bar */
+    DrawRectangle(8, 6, 128, 10, DARKGRAY);
+    DrawRectangle(8, 6, 128 * game.player.hp / game.player.maxHp, 10, RED);
+    const char *hpStr = TextFormat("%d/%d", game.player.hp, game.player.maxHp);
+    DrawText(hpStr, 72 - MeasureText(hpStr, 9)/2, 7, 9, WHITE);
 
-    if (game.player.hasKey)
-        DrawText("[KEY]", 8, 72, 14, YELLOW);
+    /* score */
+    DrawText(TextFormat("SCORE  %d", game.score), 8, 21, 14, RAYWHITE);
 
+    /* inventory icons — key left, sword right */
+    if (game.player.hasKey)   DrawTileCentered(TILE_KEY,    20, 50, 24, 0.0f, YELLOW);
+    if (game.player.hasSword) DrawTileCentered(TILE_SWORD, 124, 50, 24, 0.0f, WHITE);
 }
 
 static void DrawMinimap(void)
@@ -503,6 +558,8 @@ static void UpdateDrawFrame(void)
                 if (ndx || ndy) {
                     s_moveDir[0] = ndx;
                     s_moveDir[1] = ndy;
+                    s_swordDirX  = ndx;
+                    s_swordDirY  = ndy;
                     TryMove(ndx, ndy);
                     s_moveTick = MOVE_INTERVAL;
                 }
@@ -540,22 +597,28 @@ static void UpdateDrawFrame(void)
         } break;
 
         case SCREEN_GAMEOVER: {
+            ClearBackground(BLACK);
             DrawText("GAME OVER",
                      SCREEN_WIDTH/2 - MeasureText("GAME OVER", 60)/2,
-                     120, 60, RED);
-            DrawText(TextFormat("Score: %d", game.score),
-                     SCREEN_WIDTH/2 - MeasureText(TextFormat("Score: %d", game.score), 30)/2,
-                     220, 30, WHITE);
-            DrawText(TextFormat("Floor reached: %d", game.floor),
-                     SCREEN_WIDTH/2 - MeasureText(TextFormat("Floor reached: %d", game.floor), 22)/2,
-                     260, 22, LIGHTGRAY);
-            if (game.score >= game.highScore && game.score > 0)
-                DrawText("New best!",
-                         SCREEN_WIDTH/2 - MeasureText("New best!", 24)/2,
-                         295, 24, GOLD);
-            DrawText("Press ENTER to try again",
-                     SCREEN_WIDTH/2 - MeasureText("Press ENTER to try again", 20)/2,
-                     360, 20, WHITE);
+                     80, 60, RED);
+
+            int cx = SCREEN_WIDTH/2 - 80, sy = 180, gap = 30;
+            DrawText(TextFormat("Floor    %d",  game.floor),         cx, sy,         22, LIGHTGRAY);
+            DrawText(TextFormat("Score    %d",  game.score),         cx, sy + gap,   22, WHITE);
+            DrawText(TextFormat("Coins    %d",  game.player.coins),  cx, sy + gap*2, 22, GOLD);
+
+            if (game.score > 0 && game.score >= game.highScore)
+                DrawText("NEW BEST!",
+                         SCREEN_WIDTH/2 - MeasureText("NEW BEST!", 28)/2,
+                         sy + gap*3 + 12, 28, GOLD);
+            else if (game.highScore > 0)
+                DrawText(TextFormat("Best  %d", game.highScore),
+                         SCREEN_WIDTH/2 - MeasureText(TextFormat("Best  %d", game.highScore), 18)/2,
+                         sy + gap*3 + 16, 18, DARKGRAY);
+
+            DrawText("PRESS ENTER",
+                     SCREEN_WIDTH/2 - MeasureText("PRESS ENTER", 20)/2,
+                     370, 20, GRAY);
 
             if (IsKeyPressed(KEY_ENTER)) {
                 game.screen = SCREEN_TITLE;
