@@ -11,8 +11,8 @@
 #include <string.h>
 #include <time.h>
 
-#define LIGHT_INNER 2   /* fully-lit Chebyshev radius (5x5 area) */
-#define LIGHT_OUTER 7   /* explored/fading outer radius           */
+#define LIGHT_INNER 1   /* fully-lit Chebyshev radius (3x3 area) */
+#define LIGHT_OUTER 4   /* explored/fading outer radius           */
 
 static GameState game     = { 0 };
 static bool s_visible[MAP_H][MAP_W];
