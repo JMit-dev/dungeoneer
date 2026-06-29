@@ -61,6 +61,7 @@ typedef struct {
     int  facingX, facingY;  /* current heading, one of (±1,0) or (0,±1) */
     bool alerted;           /* actively chasing player                   */
     int  searchTurns;       /* >0: lost sight, walking in last direction  */
+    int  patrolTimer;       /* ticks until next patrol step; -1=stationary */
 } Enemy;
 
 typedef struct {

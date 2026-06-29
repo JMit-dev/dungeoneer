@@ -228,13 +228,27 @@ void GenerateDungeon(DungeonMap *map, Enemy enemies[], int *enemyCount,
         for (int i = 0; i < *enemyCount && !dup; i++)
             if (enemies[i].x == x && enemies[i].y == y) dup = true;
         if (dup) continue;
-        int fd = rand() % 4;
+        /* face along the longest clear corridor from this tile */
+        int bestDir = rand()%4, bestLen = 0;
+        for (int d = 0; d < 4; d++) {
+            int len = 0;
+            for (int s = 1; s < MAP_W; s++) {
+                int cx = x + s*DX4[d], cy = y + s*DY4[d];
+                if (cx<0||cx>=MAP_W||cy<0||cy>=MAP_H) break;
+                if (map->terrain[cy][cx] != TILE_FLOOR) break;
+                len++;
+            }
+            if (len > bestLen) { bestLen = len; bestDir = d; }
+        }
+        /* 1-in-3 enemies stands still; the rest patrol back and forth */
+        int ptimer = (rand()%3 == 0) ? -1 : (2 + rand()%3);
         enemies[*enemyCount] = (Enemy){
             .x = x, .y = y,
             .hp = 2 + floor/2, .maxHp = 2 + floor/2,
             .active = true, .visionRange = 10,
-            .facingX = DX4[fd], .facingY = DY4[fd],
+            .facingX = DX4[bestDir], .facingY = DY4[bestDir],
             .alerted = false, .searchTurns = 0,
+            .patrolTimer = ptimer,
         };
         (*enemyCount)++;
     }

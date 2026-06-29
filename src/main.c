@@ -73,17 +73,25 @@ static bool EnemyCanPass(int x, int y, void *ctx)
     return true;
 }
 
-/* 45-degree forward cone: enemy sees tiles where the dot product of the
-   relative vector with facing exceeds the lateral component. */
+/* corridor vision: enemy sees along the exact line they face, up to the
+   first wall, blocked door, or the vision range limit. */
 static bool CanSeePlayer(Enemy *e)
 {
     int rx = game.player.x - e->x;
     int ry = game.player.y - e->y;
-    if (abs(rx) + abs(ry) > e->visionRange) return false;
     int fwd = rx * e->facingX + ry * e->facingY;
-    if (fwd <= 0) return false;
-    int lat = abs(rx * e->facingY - ry * e->facingX);
-    return lat <= fwd;
+    if (fwd <= 0 || fwd > e->visionRange) return false;
+    /* player must be on the exact same axis (no lateral offset) */
+    if (rx * e->facingY - ry * e->facingX != 0) return false;
+    /* check no blocking tile between enemy and player */
+    for (int s = 1; s < fwd; s++) {
+        int tx = e->x + s * e->facingX;
+        int ty = e->y + s * e->facingY;
+        if (game.map.terrain[ty][tx] != TILE_FLOOR) return false;
+        int o = game.map.objects[ty][tx];
+        if (o == TILE_BLOCK || o == TILE_DOOR_LOCKED) return false;
+    }
+    return true;
 }
 
 /* ---- floor management ---- */
@@ -174,8 +182,32 @@ static void MoveEnemies(void)
                     HurtPlayer();
             }
         } else {
-            /* ---- DORMANT: stand still, watch forward cone ---- */
-            if (sees) e->alerted = true;
+            /* ---- DORMANT: patrol corridor and watch for player ---- */
+            if (e->patrolTimer == 0) {
+                /* try to step forward; flip direction at walls */
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    int nx = e->x + e->facingX, ny = e->y + e->facingY;
+                    bool ok = (nx>=0 && nx<MAP_W && ny>=0 && ny<MAP_H &&
+                               game.map.terrain[ny][nx] == TILE_FLOOR &&
+                               game.map.objects[ny][nx] == TILE_NONE);
+                    for (int j = 0; j < game.enemyCount && ok; j++)
+                        if (j!=i && game.enemies[j].active &&
+                            game.enemies[j].x==nx && game.enemies[j].y==ny) ok=false;
+                    if (ok) {
+                        e->x = nx; e->y = ny;
+                        EnemyLandCheck(e);
+                        break;
+                    }
+                    /* blocked — flip and try the other way */
+                    e->facingX = -e->facingX;
+                    e->facingY = -e->facingY;
+                }
+                e->patrolTimer = 2 + rand()%3;
+            } else if (e->patrolTimer > 0) {
+                e->patrolTimer--;
+            }
+            /* check vision from current position (after any patrol step) */
+            if (CanSeePlayer(e)) e->alerted = true;
         }
     }
 }
